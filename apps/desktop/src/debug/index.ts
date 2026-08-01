@@ -30,6 +30,10 @@ import './render-counter'
 // window.__PERF_LIVE__.on() in the console, then just use the app.
 import './perf-live'
 
+// Update-flow simulator — window.__SIMULATE_UPDATE__() drives the updates
+// overlay through realistic applying/terminal states without quitting the app.
+import { installUpdateSimulator } from './simulate-update'
 import { watchSessionAtoms } from './watched-atoms'
 
 watchSessionAtoms()
+installUpdateSimulator()
