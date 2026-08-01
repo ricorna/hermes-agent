@@ -1824,7 +1824,6 @@ export interface Translations {
     done: string
     applyingBody: string
     applyingBodyBackend: string
-    applyingClose: string
     errorTitle: string
     errorBody: string
     notNow: string
