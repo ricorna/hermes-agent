@@ -1966,6 +1966,7 @@ export const zhHant = defineLocale({
     applyingBodyBackend: '遠端後端正在套用更新並將重新啟動。恢復後 Hermes 會自動重新連線。',
     errorTitle: '更新未完成',
     errorBody: '沒有資料遺失。您可以現在重試。',
+    openLogs: '開啟日誌',
     notNow: '暫不',
     applyStatus: {
       preparing: '正在更新後端…',

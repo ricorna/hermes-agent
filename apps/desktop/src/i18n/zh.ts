@@ -2381,6 +2381,7 @@ export const zh: Translations = {
     applyingBodyBackend: '远程后端正在应用更新并将重启。恢复后 Hermes 会自动重新连接。',
     errorTitle: '更新未完成',
     errorBody: '没有数据丢失。你可以现在重试。',
+    openLogs: '打开日志',
     notNow: '暂不',
     applyStatus: {
       preparing: '正在更新后端…',

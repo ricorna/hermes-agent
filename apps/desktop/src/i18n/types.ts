@@ -1826,6 +1826,7 @@ export interface Translations {
     applyingBodyBackend: string
     errorTitle: string
     errorBody: string
+    openLogs: string
     notNow: string
     applyStatus: {
       preparing: string

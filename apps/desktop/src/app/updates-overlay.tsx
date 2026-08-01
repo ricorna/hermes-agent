@@ -408,9 +408,14 @@ function ErrorView({ message, onDismiss, onRetry }: { message: string; onDismiss
       <Button className="font-semibold" onClick={onRetry} size="lg">
         {u.tryAgain}
       </Button>
-      <Button onClick={onDismiss} variant="text">
-        {u.notNow}
-      </Button>
+      <div className="flex items-center justify-center gap-1">
+        <Button onClick={() => void window.hermesDesktop?.revealLogs()} variant="text">
+          {u.openLogs}
+        </Button>
+        <Button onClick={onDismiss} variant="text">
+          {u.notNow}
+        </Button>
+      </div>
     </ErrorState>
   )
 }

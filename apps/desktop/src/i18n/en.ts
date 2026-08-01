@@ -2190,6 +2190,7 @@ export const en: Translations = {
       'The remote backend is applying the update and will restart. Hermes reconnects automatically when it’s back.',
     errorTitle: 'Update didn’t finish',
     errorBody: 'No worries — nothing was lost. You can try again now.',
+    openLogs: 'Open logs',
     notNow: 'Not now',
     applyStatus: {
       preparing: 'Updating backend…',
