@@ -2,7 +2,7 @@ import { PassThrough } from 'stream'
 
 import { renderSync } from '@hermes/ink'
 import { stripAnsi } from '@hermes/shared/ansi'
-import React from 'react'
+import React, { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { GatewayProvider } from '../app/gatewayContext.js'
@@ -303,8 +303,12 @@ describe('status-chrome timers under an occluding overlay', () => {
     // Five minutes of wall clock elapse while the overlay covers the rule.
     nowSpy.mockReturnValue(T0 + 300_000)
     rule.clear()
-    resetOverlayState()
-    await flush()
+    // Flush the store update and its effect-driven clock reseed, not an arbitrary
+    // 20ms of scheduler time. Do not wait for a 1s tick: that could hide a broken
+    // reveal reseed by letting the interval catch up instead.
+    await act(async () => {
+      resetOverlayState()
+    })
 
     const resumed = rule.output()
 

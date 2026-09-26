@@ -44,30 +44,27 @@ class TestRejectedPhrasingIsGone:
             "rejects on subscription OAuth tokens (#82154)"
         )
 
-    def test_first_sentence_is_the_verified_reword(self):
-        # The reporter verified this replacement returns 200 where the original
-        # returned 400. Pin the first line so a refactor can't silently revert it.
+    def test_save_eligibility_requires_verified_reusable_learning(self):
+        # Difficulty is not permission to write. Preserve the scoped policy,
+        # without freezing one vendor-tested sentence as the only valid prose.
         first_line = SKILLS_GUIDANCE.split("\n", 1)[0]
-        assert first_line == (
-            "When you work out a non-trivial workflow, record it with skill_manage "
-            "for future reuse."
-        )
+        for qualifier in ("verified", "reusable", "not already captured"):
+            assert qualifier in first_line
+        assert "task difficulty alone is not a reason to write" in first_line
 
 
 class TestBehaviourIsPreserved:
-    """The reword must not cost the prompt its meaning — it still has to tell
-    the model to record workflows as skills and to patch stale ones."""
+    """Writing stays subordinate to the deliverable and explicit authority."""
 
-    def test_still_instructs_recording_a_workflow_as_a_skill(self):
-        first_line = SKILLS_GUIDANCE.split("\n", 1)[0].lower()
-        assert "skill_manage" in first_line
-        assert "workflow" in first_line
-        assert "reuse" in first_line
+    def test_learning_does_not_displace_the_requested_deliverable(self):
+        assert "Do not append routine offers to save a skill" in SKILLS_GUIDANCE
+        assert "repeat a completed save" in SKILLS_GUIDANCE
+        assert "delay the requested deliverable" in SKILLS_GUIDANCE
+        assert "Honor plan-only and no-save requests" in SKILLS_GUIDANCE
+        assert "preserve explicit approval gates" in SKILLS_GUIDANCE
 
-    def test_patch_stale_skills_sentence_untouched(self):
-        # Dieted (#95681): the patch-stale-skills coaching moved OUT of this
-        # block — the ## Skills section and skill_manage's schema teach it.
-        assert "skill_manage" in SKILLS_GUIDANCE  # record-workflow sentence stays
+    def test_existing_skills_are_patched_before_creating_duplicates(self):
+        assert "Patch a relevant existing skill before creating one" in SKILLS_GUIDANCE
 
     def test_skill_safety_rule_block_untouched(self):
         # Guarded independently by tests/agent/test_ghost_skill_pruning.py; asserted
