@@ -414,15 +414,22 @@ _DO_NOT_CAPTURE_BLOCK = (
     "work' as a standalone constraint.\n\n"
 )
 
+_SKILL_REVIEW_SCOPE_BLOCK = (
+    "Save only a verified, reusable lesson not already captured. Check successful skill writes in "
+    "the conversation and the current skill before editing. Do not repeat a save or create a second "
+    "record of the same lesson. Task difficulty, tool-call count, and the review trigger alone are "
+    "not reasons to write. Respect plan-only, no-save requests, and explicit approval gates. "
+    "Do not ask the user whether to save a skill or append another learning nudge after delivery. "
+    "No skill write is needed when no lesson qualifies.\n\n"
+)
+
 _SKILL_REVIEW_PROMPT = (
-    "Review the conversation above and update the skill library. Be ACTIVE — most sessions produce "
-    "at least one skill update, even if small. A pass that does nothing is a missed learning "
-    "opportunity, not a neutral outcome.\n\n"
+    "Review the conversation above for reusable skill lessons.\n\n"
+    + _SKILL_REVIEW_SCOPE_BLOCK +
     "Target shape of the library: CLASS-LEVEL skills, each with a SKILL.md of always-on rules and a "
     "small `references/` set of topical depth. Not a flat list of narrow one-session skills, and "
-    "not an umbrella hoarding a references/ file per session. This shapes HOW you update, not "
-    "WHETHER you update.\n\n" + _LESSON_LAYER_BLOCK +
-    "Signals to look for (any one of these warrants action):\n"
+    "not an umbrella hoarding a references/ file per session.\n\n" + _LESSON_LAYER_BLOCK +
+    "Signals to evaluate for an uncaptured reusable lesson:\n"
     "  • User corrected your style, tone, format, legibility, or verbosity. Frustration signals "
     "like 'stop doing X', 'this is too verbose', 'don't format like this', 'why are you "
     "explaining', 'just give me the answer', 'you always do Y and I hate it', or an explicit "
@@ -433,9 +440,8 @@ _SKILL_REVIEW_PROMPT = (
     "  • Non-trivial technique, fix, workaround, debugging path, or tool-usage pattern emerged "
     "that a future session would benefit from. Capture it.\n"
     "  • A skill that got loaded or consulted this session turned out to be wrong, missing a step, "
-    "or outdated. Patch it NOW.\n\n"
-    "Preference order — prefer the earliest action that fits, but do pick one when a signal above "
-    "fired:\n"
+    "or outdated. Verify the correction before patching it.\n\n"
+    "Preference order — for a qualifying lesson, prefer the earliest action that fits:\n"
     "  1. UPDATE A CURRENTLY-LOADED SKILL. Look back through the conversation for skills the user "
     "loaded via /skill-name or you read via skill_view. If any of them covers the territory of the "
     "new learning, PATCH that one first (re-load it with skill_view during this review — see "
@@ -495,21 +501,17 @@ _SKILL_REVIEW_PROMPT = (
     "If the only skills that need updating are protected, say\n"
     "'Nothing to save.' and stop.\n\n"
     "Do NOT capture" + _DO_NOT_CAPTURE_BLOCK +
-    "'Nothing to save.' is a real option but should NOT be the default. If the session ran "
-    "smoothly with no corrections and produced no new technique, just say 'Nothing to save.' and "
-    "stop. Otherwise, act."
+    "If no verified, reusable lesson remains uncaptured, just say 'Nothing to save.' and stop."
 )
 
 _COMBINED_REVIEW_PROMPT = (
-    "Review the conversation above and update two things:\n\n"
+    "Review the conversation above for useful, uncaptured memory or skill lessons:\n\n"
     "**Memory**: " + _MEMORY_ROUTING_BLOCK +
-    "**Skills**: how to do this class of task. Be ACTIVE — most sessions produce at least one "
-    "skill update. A pass that does nothing is a missed learning opportunity, not a neutral "
-    "outcome.\n\n"
+    "**Skills**: how to do this class of task.\n\n" + _SKILL_REVIEW_SCOPE_BLOCK +
     "Target shape of the skill library: CLASS-LEVEL skills with a SKILL.md of always-on rules and a "
     "small `references/` set of topical depth — not narrow one-session skills, and not an umbrella "
     "hoarding a references/ file per session.\n\n" + _LESSON_LAYER_BLOCK +
-    "Signals that warrant a skill update (any one is enough):\n"
+    "Signals to evaluate for an uncaptured reusable lesson:\n"
     "  • User corrected your style, tone, format, legibility, verbosity, or approach. Frustration "
     "is a FIRST-CLASS skill signal, not just a memory signal. 'stop doing X', 'don't format like "
     "this', 'I hate when you Y' — embed the lesson in the skill that governs that task so the next "
@@ -562,8 +564,8 @@ _COMBINED_REVIEW_PROMPT = (
     "If the only skills that need updating are protected, say\n"
     "'Nothing to save.' and stop.\n\n"
     "Do NOT capture as skills" + _DO_NOT_CAPTURE_BLOCK +
-    "Act on whichever of the two dimensions has real signal. If genuinely nothing stands out on "
-    "either, say 'Nothing to save.' and stop — but don't reach for that conclusion as a default."
+    "Act only on useful information or verified, reusable lessons not already captured. "
+    "If neither qualifies, say 'Nothing to save.' and stop."
 )
 
 

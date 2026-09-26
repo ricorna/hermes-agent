@@ -1,7 +1,6 @@
 """Behavior tests for the skill review / combined review prompts.
 
-The review prompts steer the background review agent toward actively updating
-the skill library after most sessions, with a strong bias toward:
+The review prompts save uncaptured reusable lessons, with a strong bias toward:
   1. Patching currently-loaded skills first,
   2. Patching existing umbrellas next,
   3. Adding references/ files under an existing umbrella,
@@ -21,16 +20,16 @@ from run_agent import AIAgent
 # _SKILL_REVIEW_PROMPT
 # ---------------------------------------------------------------------------
 
-def test_skill_review_prompt_biases_toward_active_updates():
-    """Prompt must frame updating as the default stance, not something rare."""
-    prompt = AIAgent._SKILL_REVIEW_PROMPT
-    assert "ACTIVE" in prompt or "active" in prompt.lower(), (
-        "must tell the reviewer to be active"
-    )
-    # "missed learning opportunity" or equivalent framing for not acting
-    assert "missed" in prompt.lower() or "opportunity" in prompt.lower(), (
-        "must frame inaction as a miss, not a neutral outcome"
-    )
+def test_skill_reviews_only_save_unsaved_reusable_lessons():
+    """Post-delivery review must allow a no-op and never repeat a foreground save."""
+    for prompt in (AIAgent._SKILL_REVIEW_PROMPT, AIAgent._COMBINED_REVIEW_PROMPT):
+        assert "not already captured" in prompt
+        assert "successful skill writes" in prompt
+        assert "Do not repeat a save" in prompt
+        assert "Do not ask the user" in prompt
+        assert "Nothing to save" in prompt
+        assert "most sessions should" not in prompt.lower()
+        assert "missed learning opportunity" not in prompt.lower()
 
 
 def test_skill_review_prompt_treats_user_corrections_as_skill_signal():

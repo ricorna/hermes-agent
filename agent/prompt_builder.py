@@ -249,12 +249,13 @@ SESSION_SEARCH_GUIDANCE = (
 # do not need. Bisected against the live API: that sentence alone reproduces the 400 and removing it alone
 # clears it; size and the system[0] identity gate were both ruled out. The reword is empirically validated,
 # not understood — if you rewrite this sentence, re-verify against a subscription OAuth token, not an
-# sk-ant-api… key, which does not hit the filter. Dieted (#95681, maintainer-directed): the record-it /
-# patch-it coaching that used to open this block duplicated the ## Skills section (which teaches both "offer
-# to save as a skill" and "fix it with skill_manage(action='patch')") and skill_manage's own schema. Only
-# the compaction-pruning contract lives here — nothing else teaches it.
+# sk-ant-api… key, which does not hit the filter. Keep save eligibility here, not duplicated in the
+# skills catalog. The catalog selects task-relevant skills; background review handles remaining lessons.
 SKILLS_GUIDANCE = (
-    "When you work out a non-trivial workflow, record it with skill_manage for future reuse.\n\n"
+    "Save a skill only for a verified, reusable lesson not already captured. Patch a relevant existing "
+    "skill before creating one; task difficulty alone is not a reason to write. Do not append routine "
+    "offers to save a skill, repeat a completed save, or delay the requested deliverable for learning "
+    "housekeeping. Honor plan-only and no-save requests; preserve explicit approval gates.\n\n"
     "## Skill Safety Rule\n"
     "A skill placeholder containing `[SKILL_PRUNED]` lost its content in context compression and is inaccessible — "
     "reload it with skill_view(name='...') before acting on anything that depends on it. After reloading, ignore any "
@@ -466,7 +467,9 @@ OPENAI_MODEL_EXECUTION_GUIDANCE = (
     "- Correctness: does the output satisfy every stated requirement?\n"
     "- Grounding: are factual claims backed by tool outputs or provided context?\n"
     "- Formatting: does the output match the requested format or schema?\n"
-    "- Safety: if the next step has side effects (file writes, commands, API calls), confirm scope before executing.\n"
+    "- Safety: before side effects (file writes, commands, API calls), verify that existing authorization covers the target and action. "
+    "Do not ask again for scope already authorized. Ask only when material scope is unclear or additional authorization is needed. "
+    "Explicit approval gates still apply; plan-only requests do not authorize implementation.\n"
     "- Completion: 'done' means every named acceptance criterion is verified — never a plausible subset. Completing "
     "your plan is not itself the answer; the requested output must appear in your response.\n"
     "</verification>\n\n"
@@ -1372,23 +1375,20 @@ def _render_skills_index(
         )
     return (
         "## Skills\n"
-        "Before replying, scan the skills below. If a skill matches or is even partially relevant to your "
-        "task, you MUST load it with skill_view(name) and follow its instructions. Err on the side of "
-        "loading — it is always better to have context you don't need than to miss critical steps, pitfalls, "
-        "or established workflows. Skills contain specialized knowledge — API endpoints, tool-specific "
-        "commands, and proven workflows that outperform general-purpose approaches. Load the skill "
+        "Before acting, scan the skills below. Load skills with actionable guidance for the current task "
+        "using skill_view(name), and follow their relevant instructions. Choose the smallest set that "
+        "covers the task and its safety requirements. Do not follow chains of merely related skills "
+        "or load a skill just because its category overlaps; load a referenced skill when it is a "
+        "required step or supplies missing task-specific guidance. Skills contain specialized knowledge "
+        "— API endpoints, tool-specific commands, and proven workflows. Load an applicable skill "
         f"even if you think you could handle the task with basic tools like {_basic_tools}. "
         "Skills also encode the user's preferred approach, conventions, and quality standards for tasks like "
         "code review, planning, and testing — load them even for tasks you already know how to do, because "
-        "the skill defines how it should be done here.\n"
-        "If a skill has issues, fix it with skill_manage(action='patch').\n"
-        "After difficult/iterative tasks, offer to save as a skill. If a skill you loaded was missing steps, "
-        "had wrong commands, or needed pitfalls you discovered, update it before finishing.\n"
-        "\n"
+        "the skill defines how it should be done here.\n\n"
         "<available_skills>\n"
         + "\n".join(index_lines) + "\n"
         "</available_skills>\n\n"
-        "Only proceed without loading a skill if genuinely none are relevant to the task."
+        "Proceed without loading a skill when none supplies actionable guidance for the current task."
         + hidden_note
     )
 
