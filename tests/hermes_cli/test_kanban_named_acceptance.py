@@ -206,6 +206,170 @@ def test_attempt_chronology_not_run_identity(evidence, monkeypatch, scenario):
         assert result["run_attempt"] == other["run_attempt"]
 
 
+@pytest.fixture
+def squashed(evidence, monkeypatch):
+    from hermes_cli import kanban_named_acceptance as named
+    squash = "1" * 40
+    evidence["pr"].update(state="closed", merged=True, merge_commit_sha=squash)
+    evidence["run"]["pull_requests"] = []
+    stamp = "2026-09-25T19:00:00Z "
+    evidence["log"] = (
+        stamp + "##[group]Run actions/checkout@" + "2" * 40 + "\n"
+        + stamp + f"Syncing repository: {REPO}\n"
+        + stamp + f"[command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +{MERGE}:refs/remotes/pull/3/merge\n"
+        + stamp + "[command]/usr/bin/git checkout --progress --force refs/remotes/pull/3/merge\n"
+        + evidence["log"]
+        + stamp + "##[group]Run npm test\n"
+    )
+    original = gate._api
+    evidence["witness"] = dict(copy.deepcopy(evidence["run"]), id=77, head_sha=squash,
+                               event="push", head_branch="main", check_suite_id=78)
+    evidence["witness_jobs"] = [dict(j, id=j["id"] + 100, run_id=77, head_sha=squash)
+                                 for j in evidence["jobs"]]
+    original_log = named._log
+    monkeypatch.setattr(named, "_log", lambda repo, jid: original_log(repo, jid).replace(MERGE, squash)
+                        if jid >= 200 else original_log(repo, jid))
+
+    def api(endpoint, **kwargs):
+        if "event=push" in endpoint:
+            runs = [] if evidence.get("no_witness") else [copy.deepcopy(evidence["witness"])]
+            return [{"total_count": len(runs), "workflow_runs": runs}]
+        if endpoint.endswith("/actions/runs/77"):
+            return copy.deepcopy(evidence["witness"])
+        if "/runs/77/attempts/" in endpoint:
+            return [{"total_count": len(evidence["witness_jobs"]), "jobs": copy.deepcopy(evidence["witness_jobs"])}]
+        if "/check-runs/" in endpoint and int(endpoint.rsplit("/", 1)[1]) >= 200:
+            jid = int(endpoint.rsplit("/", 1)[1])
+            job = next(j for j in evidence["witness_jobs"] if j["id"] == jid)
+            return dict(copy.deepcopy(job), app={"id": 15368}, check_suite={"id": 78})
+        if endpoint.endswith("/git/commits/" + squash):
+            return {"sha": squash, "tree": {"sha": evidence.get("squash_tree", TREE)},
+                    "parents": [{"sha": evidence.get("squash_parent", "e" * 40)}]}
+        return original(endpoint, **kwargs)
+
+    monkeypatch.setattr(gate, "_api", api)
+    return evidence
+
+
+@pytest.mark.parametrize("full_history", [False, True])
+@pytest.mark.parametrize("empty_metadata", [True, False])
+def test_historical_execution_survives_squash(squashed, empty_metadata, full_history):
+    if full_history:
+        squashed["log"] = squashed["log"].replace("--depth=1 origin +", "--unshallow origin +refs/heads/*:refs/remotes/origin/* +refs/tags/*:refs/tags/* +")
+    if not empty_metadata:
+        squashed["run"]["pull_requests"] = [{"number": 3,
+            "url": f"https://api.github.com/repos/{REPO}/pulls/3",
+            "head": {"sha": HEAD}, "base": {"sha": "e" * 40}}]
+    result = gate.collect_acceptance(REPO, URL)
+    assert result["ok"], result
+    assert result["tested_sha"] == result["historical_checkout_sha"] == MERGE
+    assert result["workflow_execution_sha"] == squashed["pr"]["merge_commit_sha"]
+    assert result["exact_final_execution"]["run_id"] == 77
+    assert result["merge_commit_sha"] == squashed["pr"]["merge_commit_sha"]
+    assert result["tree_sha"] == TREE
+
+
+@pytest.mark.parametrize("fault", ["ref", "repo_log", "fetch_sha", "unscoped", "duplicate",
+    "squash_tree", "squash_parent", "tree", "blob", "app", "head", "event", "repo",
+    "binding", "failed", "attempt", "newer", "jobs_during_read"])
+def test_historical_evidence_fails_closed(squashed, fault):
+    if fault == "ref":
+        squashed["log"] = squashed["log"].replace("pull/3/merge", "pull/4/merge")
+    elif fault == "repo_log":
+        squashed["log"] = squashed["log"].replace(REPO, "other/repo")
+    elif fault == "fetch_sha":
+        squashed["log"] = squashed["log"].replace("+" + MERGE, "+" + HEAD)
+    elif fault == "unscoped":
+        squashed["log"] = squashed["log"].replace("Run actions/checkout@", "Run echo @")
+    elif fault == "duplicate":
+        squashed["log"] *= 2
+    elif fault in {"squash_tree", "squash_parent", "tree", "blob"}:
+        squashed[fault] = "f" * 40
+    elif fault == "app":
+        squashed["app"] = 7
+    elif fault == "head":
+        squashed["run"]["head_sha"] = "f" * 40
+    elif fault == "event":
+        squashed["run"]["event"] = "push"
+    elif fault == "repo":
+        squashed["run"]["repository"]["full_name"] = "other/repo"
+    elif fault == "binding":
+        squashed["run"]["pull_requests"] = [{"number": 4, "url": "unrelated"}]
+    elif fault == "failed":
+        squashed["jobs"][0]["conclusion"] = "failure"
+    elif fault == "attempt":
+        squashed["jobs"][0]["run_attempt"] = 2
+    else:
+        squashed[fault] = True
+    assert not gate.collect_acceptance(REPO, URL)["ok"]
+
+
+def test_check_rerun_during_collection_is_stale(squashed, monkeypatch):
+    original = gate._api
+    reads = {}
+
+    def api(endpoint, **kwargs):
+        value = original(endpoint, **kwargs)
+        if "/check-runs/" in endpoint and int(endpoint.rsplit("/", 1)[1]) < 200:
+            reads[endpoint] = reads.get(endpoint, 0) + 1
+            if reads[endpoint] > 1:
+                value["conclusion"] = "failure"
+        return value
+
+    monkeypatch.setattr(gate, "_api", api)
+    result = gate.collect_acceptance(REPO, URL)
+    assert not result["ok"]
+    assert result["classification"] == "stale"
+
+
+def test_printed_execution_without_independent_witness_is_rejected(squashed):
+    squashed["no_witness"] = True
+    assert not gate.collect_acceptance(REPO, URL)["ok"]
+
+
+@pytest.mark.parametrize("field,value", [("head_sha", "f" * 40), ("head_branch", "unrelated"),
+    ("event", "pull_request"), ("conclusion", "failure"), ("run_attempt", 2),
+    ("workflow_id", 99), ("path", ".github/workflows/other.yml")])
+def test_final_execution_witness_must_be_exact(squashed, field, value):
+    squashed["witness"][field] = value
+    assert not gate.collect_acceptance(REPO, URL)["ok"]
+
+
+@pytest.mark.parametrize("fault", ["repo", "app", "suite", "failed", "head", "attempt",
+    "check_race", "run_race", "missing", "ambiguous", "checkout"])
+def test_final_witness_fails_closed(squashed, monkeypatch, fault):
+    from hermes_cli import kanban_named_acceptance as named
+    original = gate._api
+    counts = {}
+    if fault == "repo":
+        squashed["witness"]["repository"]["full_name"] = "other/repo"
+    if fault == "checkout":
+        original_log = named._log
+        monkeypatch.setattr(named, "_log", lambda repo, jid: original_log(repo, jid).replace("1" * 40, "f" * 40)
+                            if jid >= 200 else original_log(repo, jid))
+
+    def api(endpoint, **kwargs):
+        value = original(endpoint, **kwargs)
+        counts[endpoint] = counts.get(endpoint, 0) + 1
+        if "/check-runs/" in endpoint and int(endpoint.rsplit("/", 1)[1]) >= 200:
+            if fault == "app": value["app"]["id"] = 1
+            if fault == "suite": value["check_suite"]["id"] = 1
+            if fault == "failed": value["conclusion"] = "failure"
+            if fault == "head": value["head_sha"] = HEAD
+            if fault == "check_race" and counts[endpoint] > 1: value["conclusion"] = "failure"
+        if "/runs/77/attempts/" in endpoint:
+            if fault == "attempt": value[0]["jobs"][0]["run_attempt"] = 2
+            if fault == "missing": value[0] = {"total_count": 0, "jobs": []}
+        if endpoint.endswith("/runs/77") and fault == "run_race": value["run_attempt"] = 2
+        if "event=push" in endpoint and fault == "ambiguous":
+            value[0]["workflow_runs"].append(dict(value[0]["workflow_runs"][0], id=79))
+            value[0]["total_count"] = 2
+        return value
+
+    monkeypatch.setattr(gate, "_api", api)
+    assert not gate.collect_acceptance(REPO, URL)["ok"]
+
+
 def test_empty_policy_fails_closed(evidence, monkeypatch):
     from hermes_cli import config_effective
     monkeypatch.setattr(config_effective, "load_user_config_effective", lambda **kw: {"kanban": {"pr_acceptance_policies": {REPO: {}}}})

@@ -82,6 +82,41 @@ def _log(repo, job_id):
     return response.stdout
 
 
+def _historical_checkout(log, repo, number, tested_sha):
+    """Bind an archived, authenticated job log to this PR's merge ref.
+
+    This structural check rejects unrelated or ambiguous checkout claims; log
+    text is not an independent execution attestation. Historical acceptance also
+    requires the exact-final authenticated push witness below.
+    """
+    stamp = r"\d{4}-\d\d-\d\dT\S+ "
+    blocks = re.split(r"(?m)^" + stamp + r"##\[group\]Run ", log)
+    checkouts = [b for b in blocks[1:] if re.match(r"actions/checkout@[0-9a-f]{40}\r?\n", b)]
+    if len(checkouts) != 1:
+        raise ValueError("Missing or ambiguous historical checkout action")
+    block = checkouts[0]
+    ref = f"refs/remotes/pull/{number}/merge"
+    required = (
+        re.escape(f"Syncing repository: {repo}"),
+        r"\[command\]/[^\r\n ]+/git -c protocol.version=2 fetch [^\r\n]+ origin "
+        r"(?:\+refs/heads/\*:refs/remotes/origin/\* \+refs/tags/\*:refs/tags/\* )?"
+        + re.escape(f"+{tested_sha}:{ref}"),
+        r"\[command\]/[^\r\n ]+/git checkout --progress --force " + re.escape(ref),
+    )
+    positions = []
+    for pattern in required:
+        matches = list(re.finditer(r"(?m)^" + stamp + pattern + r"\r?$", block))
+        if len(matches) != 1:
+            raise ValueError("Historical checkout does not bind repository and PR ref")
+        positions.append(matches[0].start())
+    checkout = list(_CHECKOUT.finditer(block))
+    if len(checkout) != 1 or checkout[0].group(1) != tested_sha:
+        raise ValueError("Historical checkout SHA is not action-scoped")
+    positions.append(checkout[0].start())
+    if positions != sorted(positions):
+        raise ValueError("Historical checkout evidence is out of order")
+
+
 def collect_named(repo, number, policy, receipt, api):
     """Mutates the ordinary acceptance receipt; caller preserves lifecycle fencing."""
     receipt.update(policy_source="explicit_named_checks", policy_repository=repo,
@@ -135,14 +170,19 @@ def collect_named(repo, number, policy, receipt, api):
         run["workflow_id"] != policy["workflow_id"] or run["path"] != policy["workflow_path"]):
         raise ValueError("Untrusted workflow run provenance")
     bindings = [p for p in run["pull_requests"] if p["number"] == number and p["url"] == f"https://api.github.com/repos/{repo}/pulls/{number}"]
-    if len(bindings) != 1 or bindings[0]["head"]["sha"] != head or bindings[0]["base"]["sha"] != pr["base"]["sha"]:
-        raise ValueError("Run is not bound to the current PR head/base")
+    historical = pr["state"] == "closed" and pr.get("merged") is True
+    # GitHub can erase pull_requests after merge. Only an empty array gets the
+    # historical fallback; contradictory/nonempty metadata is never ignored.
+    if not (historical and run["pull_requests"] == []):
+        if len(bindings) != 1 or bindings[0]["head"]["sha"] != head or bindings[0]["base"]["sha"] != pr["base"]["sha"]:
+            raise ValueError("Run is not bound to the current PR head/base")
     if run["status"] != "completed" or run["conclusion"] != "success":
         receipt.update(classification="pending" if run["status"] != "completed" else "failure", detail="Latest workflow run is not successful.")
         return receipt
     jobs_endpoint = f"{prefix}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100"
     jobs = _items(api(jobs_endpoint, paginate=True), "jobs")
     tested = set()
+    check_snapshots = []
     for name in policy["required_checks"]:
         matching = [j for j in jobs if j["name"] == name]
         if len(matching) != 1:
@@ -152,6 +192,7 @@ def collect_named(repo, number, policy, receipt, api):
         if type(job["id"]) is not int or job["id"] <= 0:
             raise ValueError("Invalid job identity")
         check = api(f"{prefix}/check-runs/{job['id']}")
+        check_snapshots.append(check)
         if (job["run_id"] != run_id or job["run_attempt"] != attempt or job["head_sha"] != head or
             check["id"] != job["id"] or check["name"] != name or check["head_sha"] != head or
             check["app"]["id"] != policy["app_id"] or check["check_suite"]["id"] != run["check_suite_id"]):
@@ -170,12 +211,14 @@ def collect_named(repo, number, policy, receipt, api):
             shas = _CHECKOUT.findall(log)
             if len(shas) != 1:
                 raise ValueError("Missing or ambiguous tested checkout SHA")
+            if historical:
+                _historical_checkout(log, repo, number, shas[0])
             tested.add(shas[0])
             receipt["checks"][-1].update(tested_sha=shas[0], log_sha256=hashlib.sha256(log.encode()).hexdigest())
     if len(tested) != 1:
         raise ValueError("Checkout jobs tested different commits")
     tested_sha = tested.pop()
-    if tested_sha not in {head, pr.get("merge_commit_sha")}:
+    if not historical and tested_sha not in {head, pr.get("merge_commit_sha")}:
         raise ValueError("Tested checkout is neither current head nor current PR merge")
     head_commit = api(f"{prefix}/git/commits/{head}")
     tested_commit = api(f"{prefix}/git/commits/{tested_sha}")
@@ -187,20 +230,39 @@ def collect_named(repo, number, policy, receipt, api):
     # pull_request executes the merge-ref workflow even if it checks out head.
     # Bind that execution revision separately: head-only pinning could trust an
     # unapproved workflow introduced by base, running tests against approved head.
-    execution_sha = pr.get("merge_commit_sha")
+    execution_sha = tested_sha if historical else pr.get("merge_commit_sha")
     if not isinstance(execution_sha, str) or not _SHA.fullmatch(execution_sha):
         raise ValueError("Workflow execution merge is unavailable")
     execution_commit = api(f"{prefix}/git/commits/{execution_sha}")
     if execution_commit["sha"] != execution_sha or {p["sha"] for p in execution_commit["parents"]} != {head, pr["base"]["sha"]}:
         raise ValueError("Workflow execution merge does not bind current head/base")
-    for sha in {head, tested_sha, execution_sha}:
+    revisions = {head, tested_sha, execution_sha}
+    if historical:
+        final_sha = pr.get("merge_commit_sha")
+        if not isinstance(final_sha, str) or not _SHA.fullmatch(final_sha):
+            raise ValueError("Final merge commit is unavailable")
+        final = api(f"{prefix}/git/commits/{final_sha}")
+        parents = [p["sha"] for p in final["parents"]]
+        if (final["sha"] != final_sha or final["tree"]["sha"] != tree or
+            (final_sha != execution_sha and parents != [pr["base"]["sha"]])):
+            raise ValueError("Final squash does not bind historical base and tested tree")
+        revisions.add(final_sha)
+        receipt.update(merge_commit_sha=final_sha, execution_evidence="authenticated_checkout_merge_ref")
+    for sha in revisions:
         blob = api(f"{prefix}/contents/{quote(policy['workflow_path'], safe='/')}?ref={sha}")
         if blob["sha"] != policy["workflow_blob_sha"]:
             raise ValueError("Workflow differs from operator-approved blob")
     receipt.update(tested_sha=tested_sha, tree_sha=tree, workflow_execution_sha=execution_sha)
+    if historical:
+        from hermes_cli.kanban_squash_witness import collect_witness
+        witness = collect_witness(repo, pr, final_sha, policy, api)
+        receipt.update(exact_final_execution=witness, historical_checkout_sha=tested_sha,
+                       workflow_execution_sha=final_sha, execution_workflow_run_id=witness["run_id"],
+                       execution_evidence="exact_final_push_and_historical_same_tree")
     current_run = api(f"{prefix}/actions/runs/{run_id}")
     current_latest = latest()
-    if (current_run != run or current_latest != run or
+    if (any(api(f"{prefix}/check-runs/{check['id']}") != check for check in check_snapshots) or
+        current_run != run or current_latest != run or
         _items(api(jobs_endpoint, paginate=True), "jobs") != jobs or
         _snapshot(api(f"{prefix}/pulls/{number}")) != snapshot):
         receipt.update(classification="stale", detail="PR or workflow evidence changed during collection; retry.")
