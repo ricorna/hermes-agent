@@ -32,7 +32,18 @@ def test_oneshot_hides_skill_manage_and_skill_authoring_coaching(oneshot, intera
     prompt = build_skills_system_prompt(available_tools={"skill_view", "skills_list"}, skills_dir_override=_skills_dir(tmp_path))
     assert "demo-skill" in prompt and "skill_view" in prompt
     assert "skill_manage" not in prompt and "offer to save as a skill" not in prompt
-    assert "skill_manage" in interactive_prompt and "offer to save as a skill" in interactive_prompt
+    # Catalogs select readable skills, not authoring policy, in both modes.
+    assert "demo-skill" in interactive_prompt and "skill_view" in interactive_prompt
+    assert "skill_manage" not in interactive_prompt
+    from agent.prompt_builder import SKILLS_GUIDANCE
+    from agent.system_prompt import _tool_guidance_block
+    from types import SimpleNamespace
+
+    # Authoring eligibility remains available only with the writing tool.
+    assert SKILLS_GUIDANCE not in (_tool_guidance_block(SimpleNamespace(
+        valid_tool_names=kept, _kanban_worker_guidance="")) or "")
+    assert SKILLS_GUIDANCE in (_tool_guidance_block(SimpleNamespace(
+        valid_tool_names=kept | {"skill_manage"}, _kanban_worker_guidance="")) or "")
 
 
 def _skills_dir(tmp_path):

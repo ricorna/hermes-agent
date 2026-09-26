@@ -13,10 +13,14 @@ concurrency:
 
 jobs:
   test:
-    name: Run tests
-    # Keep the full suite in one job; forks use the standard hosted runner.
+    name: Run tests (${{ matrix.slice }})
+    # Standard hosted forks need bounded sharding, not 96-core wall-time limits.
+    strategy:
+      fail-fast: false
+      matrix:
+        slice: ${{ fromJSON(github.repository == 'NousResearch/hermes-agent' && '["1/1"]' || '["1/4", "2/4", "3/4", "4/4"]') }}
     runs-on: ${{ github.repository == 'NousResearch/hermes-agent' && 'ubuntu-latest-96-core' || 'ubuntu-latest' }}
-    timeout-minutes: 30
+    timeout-minutes: ${{ github.repository == 'NousResearch/hermes-agent' && 30 || 45 }}
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -82,6 +86,9 @@ jobs:
         run: uv cache prune --ci
 
       - name: Restore per-file duration cache
+        # Fork slices must use identical committed inputs: independently restoring
+        # a moving cache can assign a file to different slices and lose coverage.
+        if: github.repository == 'NousResearch/hermes-agent'
         # scripts/run_tests_parallel.py raises a file's timeout to
         # 3x its last healthy duration (_effective_file_timeout) so a
         # known-slow file dilated by load is not SIGKILL'd at the flat cap
@@ -109,8 +116,9 @@ jobs:
           source .venv/bin/activate
           # One pytest file per available core, including on standard forks.
           export HERMES_TEST_WORKERS="$(nproc)"
-          scripts/run_tests.sh
+          scripts/run_tests.sh --slice "$TEST_SLICE"
         env:
+          TEST_SLICE: ${{ matrix.slice }}
           # Ensure tests don't accidentally call real APIs
           OPENROUTER_API_KEY: ""
           OPENAI_API_KEY: ""
@@ -119,7 +127,7 @@ jobs:
       - name: Save per-file duration cache (main only)
         # Only green first-attempt durations are written by the runner, so
         # a hang on main cannot ratchet its own bound upward.
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && hashFiles('test_durations.json') != ''
+        if: github.repository == 'NousResearch/hermes-agent' && github.event_name == 'push' && github.ref == 'refs/heads/main' && hashFiles('test_durations.json') != ''
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: test_durations.json
