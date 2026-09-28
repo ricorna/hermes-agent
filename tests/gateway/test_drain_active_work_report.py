@@ -28,6 +28,16 @@ def _runner():
     return runner
 
 
+def _read_persisted_status(path, expected_state):
+    # Publication is asynchronous and best-effort. A flush timeout/failure must
+    # fail this gate explicitly, not surface as an unrelated missing-file error.
+    assert flush_runtime_status(timeout=10.0), f"Runtime status did not persist: {path}"
+    assert path.is_file(), f"Runtime status was not published to intended path: {path}"
+    record = json.loads(path.read_text())
+    assert record["gateway_state"] == expected_state, f"Stale runtime status at {path}: {record}"
+    return record
+
+
 def test_draining_status_names_chat_and_cron_units_and_clears_when_running(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     runner = _runner()
@@ -40,8 +50,7 @@ def test_draining_status_names_chat_and_cron_units_and_clears_when_running(tmp_p
         with sched._running_lock:
             sched._running_worker_pids[sched._inflight_key("job-a")] = 4242
         runner._update_runtime_status("draining")
-        flush_runtime_status()
-        record = json.loads((tmp_path / "gateway_state.json").read_text())
+        record = _read_persisted_status(tmp_path / "gateway_state.json", "draining")
         by_kind = {unit["kind"]: unit for unit in record["active_work"]}
         assert by_kind["chat"]["session"] == "telegram:dm:1" and by_kind["chat"]["current_tool"] == "terminal"
         assert by_kind["cron"]["job_id"] == "job-a" and by_kind["cron"]["pid"] == 4242 and by_kind["cron"]["external"]
@@ -50,8 +59,7 @@ def test_draining_status_names_chat_and_cron_units_and_clears_when_running(tmp_p
         sched.release_running_job("job-a")
     assert sched.get_running_job_details() == []
     runner._update_runtime_status("running")
-    flush_runtime_status()
-    assert json.loads((tmp_path / "gateway_state.json").read_text())["active_work"] is None
+    assert _read_persisted_status(tmp_path / "gateway_state.json", "running")["active_work"] is None
 
 
 def test_drain_progress_reporter_prints_holder_and_config_knob(tmp_path, monkeypatch):
