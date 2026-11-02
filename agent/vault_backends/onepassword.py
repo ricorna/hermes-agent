@@ -1,4 +1,7 @@
-"""1Password Login items as a vault backend (``op`` CLI).
+"""1Password Login items as a vault backend (Connect HTTP or ``op`` CLI).
+
+A profile-scoped Connect host/token pair uses read-only HTTP without the CLI.
+Connect listing exposes summary metadata only (no username/secret field reads).
 
 Unlock: ``op signin --raw`` with the master password on stdin (desktop-app
 integration or account-level auth) mints an ``OP_SESSION_<account>`` token.
@@ -21,6 +24,7 @@ from agent.secret_sources.base import run_cli
 from agent.secret_sources.onepassword import _OP_ENV_ALLOWLIST, _scrub, find_op
 from agent.vault_backends.base import LoginBackend, UnlockRequired, run_with_stdin_secret
 from agent.vault_backends import unlock as _unlock
+from agent.vault_backends.onepassword_connect import current_client
 from agent.vault_store import VaultItemMeta, normalize_origin
 
 logger = logging.getLogger(__name__)
@@ -70,10 +74,12 @@ class OnePasswordLoginBackend(LoginBackend):
         return env
 
     def is_unlocked(self) -> bool:
-        return bool(self._service_token) or _unlock.is_unlocked(self.name)
+        return current_client() is not None or bool(self._service_token) or _unlock.is_unlocked(self.name)
 
     def unlock(self, master_password: str) -> None:
         """Mint a session token from the master password (consumed on stdin, never argv)."""
+        if current_client() is not None:
+            return
         generation = _unlock.begin_unlock(self.name)
         cmd = [str(self._op()), "signin", "--raw"]
         if account := str(self.cfg.get("account") or ""):
@@ -105,7 +111,9 @@ class OnePasswordLoginBackend(LoginBackend):
     def list_items(self) -> list[VaultItemMeta]:
         if not self.is_unlocked():
             return []
-        raw = json.loads(self._run("item", "list", "--categories", "Login", "--format", "json") or "[]")
+        client = current_client()
+        raw = client.list_items() if client else json.loads(
+            self._run("item", "list", "--categories", "Login", "--format", "json") or "[]")
         out: list[VaultItemMeta] = []
         self._item_vaults = {}
         for item in raw if isinstance(raw, list) else []:
@@ -140,12 +148,16 @@ class OnePasswordLoginBackend(LoginBackend):
         return [item_id, "--vault", vault_id] if vault_id else [item_id]
 
     def resolve_password(self, handle: str) -> str:
+        if client := current_client():
+            return client.password(handle)
         return self._run("item", "get", *self._item_selector(handle),
                          "--fields", "label=password", "--reveal").rstrip("\r\n")
 
     def resolve_otp(self, handle: str) -> Optional[str]:
         # `--otp` mints the current TOTP from the item's one-time-password field; items without one error out.
         try:
+            if client := current_client():
+                return client.otp(handle)
             code = self._run("item", "get", *self._item_selector(handle), "--otp").strip()
         except Exception:
             return None

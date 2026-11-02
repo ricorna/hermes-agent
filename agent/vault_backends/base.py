@@ -107,8 +107,12 @@ def external_backend_classes():
 
 
 def is_installed(name: str) -> bool:
-    """Is the manager CLI reachable — honouring a configured ``binary_path`` over PATH."""
+    """Is Connect configured or the manager CLI reachable (honouring ``binary_path``)."""
     import shutil
+    if name == "onepassword":
+        from agent.secret_scope import get_secret
+        if get_secret("OP_CONNECT_HOST") and get_secret("OP_CONNECT_TOKEN"):
+            return True
     section = _cfg().get(name) or {}
     explicit = str(section.get("binary_path") or "") if isinstance(section, dict) else ""
     if explicit:
