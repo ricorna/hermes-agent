@@ -50,7 +50,19 @@ class DisposableSystemd(unittest.TestCase):
         self.deadline = c.Deadline(30)
         try:
             self.cmd(["systemctl", "--user", "stop", self.name])
-            self.cmd(["systemctl", "--user", "reset-failed", self.name])
+            state = self.cmd(
+                [
+                    "systemctl",
+                    "--user",
+                    "show",
+                    self.name,
+                    "-p",
+                    "ActiveState",
+                    "--value",
+                ]
+            ).strip()
+            if state == "failed":
+                self.cmd(["systemctl", "--user", "reset-failed", self.name])
         finally:
             for path in reversed(self.links):
                 self.assertTrue(path.name.startswith(PREFIX))
