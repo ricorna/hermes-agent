@@ -332,9 +332,6 @@ class Controller:
         current = self.guard.check()
         expected = copy.deepcopy(current)
         expected["unit"]["loaded"] = copy.deepcopy(target["loaded"])
-        expected["unit"]["loaded"]["ControlGroup"] = current["unit"]["loaded"][
-            "ControlGroup"
-        ]
         self.guard.change(
             "daemon-reload",
             expected,
@@ -467,9 +464,6 @@ class Controller:
         reloaded["unit"]["loaded"] = copy.deepcopy(
             self.prepared["original"]["unit"]["loaded"]
         )
-        reloaded["unit"]["loaded"]["ControlGroup"] = current["unit"]["loaded"][
-            "ControlGroup"
-        ]
         self.guard.change(
             "drop-remove",
             expected,

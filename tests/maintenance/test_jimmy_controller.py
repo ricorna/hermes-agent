@@ -115,17 +115,6 @@ class OwnershipTests(Workspace):
                 "owned.service",
             )
 
-    def test_reload_uses_stopped_cgroup_not_prepared_running_cgroup(self):
-        current = {"unit": {"loaded": {"ControlGroup": ""}, "physical": {}}}
-        journal, _state = self.journal(current)
-        controller = c.Controller.__new__(c.Controller)
-        controller.guard = journal
-        controller.cmd = lambda args: ""
-        target = {"loaded": {"ControlGroup": "/owned/running"}, "physical": {}}
-        controller.reload_to(target)
-        self.assertEqual(journal.check()["unit"]["loaded"]["ControlGroup"], "")
-        self.assertEqual(target["loaded"]["ControlGroup"], "/owned/running")
-
     def test_foreign_stale_legacy_and_tampered_prepared(self):
         journal, _state = self.journal({"launcher": "original"})
         for field, value in [("nonce", "b" * 64), ("attempt", "other"), ("schema", 1)]:
@@ -502,6 +491,33 @@ class WatchdogTests(Workspace):
                     self.root, self.work, "owned.service", cmd, c.Deadline(3)
                 )
         self.assertFalse(any("stop" in row for row in commands))
+
+    def test_stopped_worker_preserves_all_foreign_and_cgroup_fences(self):
+        identity, commands, cmd = self.prepare_worker()
+        commands.append(["stop"])
+        stopped = copy.deepcopy(identity)
+        stopped["unit"]["loaded"]["ControlGroup"] = ""
+        for change in ("invocation", "static", "group", "descendants"):
+            actual = copy.deepcopy(stopped)
+            if change == "invocation":
+                actual["invocation"] = "c" * 32
+            elif change == "static":
+                actual["unit"]["physical"] = {"foreign": True}
+            elif change == "group":
+                actual["unit"]["loaded"]["ControlGroup"] = "/foreign"
+            commands.clear()
+            commands.append(["stop"])
+            with (
+                mock.patch.object(w, "worker_identity", return_value=actual),
+                mock.patch.object(
+                    c, "cgroup_empty", return_value=change != "descendants"
+                ),
+            ):
+                with self.subTest(change=change), self.assertRaises(AssertionError):
+                    w.fence_worker(
+                        self.root, self.work, "owned.service", cmd, c.Deadline(3)
+                    )
+            self.assertEqual(sum("stop" in row for row in commands), 1)
 
     def test_descendants_must_be_empty_before_recovery(self):
         identity, commands, cmd = self.prepare_worker()

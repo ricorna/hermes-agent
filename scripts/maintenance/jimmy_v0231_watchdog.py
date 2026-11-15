@@ -51,13 +51,20 @@ def fence_worker(root, work, unit, cmd, deadline):
         "commit receipt requires reconciliation"
     )
     actual = worker_identity(cmd, unit)
-    assert actual == prepared["worker_identity"], "foreign activation unit generation"
+    saved = prepared["worker_identity"]
+    assert actual.keys() == saved.keys(), "foreign activation unit generation"
+    group = saved["unit"]["loaded"]["ControlGroup"]
+    assert group, "uncaptured activation cgroup"
     pid = int(cmd(["systemctl", "--user", "show", unit, "-p", "MainPID", "--value"]))
+    if not pid and not actual["unit"]["loaded"]["ControlGroup"]:
+        # systemd clears this runtime field on exit; static identities and the
+        # InvocationID must still match. Never normalize a populated foreign group.
+        assert controller.cgroup_empty(group), "activation descendants survived exit"
+        actual["unit"]["loaded"]["ControlGroup"] = group
+    assert actual == saved, "foreign activation unit generation"
     if pid:
         assert pid == prepared["worker_pid"]
         assert controller.proc_start(pid) == prepared["worker_start"]
-    group = actual["unit"]["loaded"]["ControlGroup"]
-    assert group, "uncaptured activation cgroup"
     # Recheck immediately before stop: a completed activation is irreversible.
     if controller.committed_owned(root, work):
         return False
