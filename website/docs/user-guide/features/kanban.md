@@ -63,7 +63,8 @@ re-reads the PR head/base. Optional failed/skipped telemetry does not veto accep
 required checks. Missing, pending, failed, cancelled, timed-out, stale, skipped or
 neutral **required** evidence cannot complete the card. Neither can zero-run
 acceptance, unreadable policy or GitHub API failures. A repository without required
-checks needs a local-only contract. `gh` must be authenticated with read access to
+checks needs a local-only contract or the explicit exact-head operator policy below.
+`gh` must be authenticated with read access to
 the repository's checks and rules; no remote writes are performed by this gate.
 Acceptance reads run as the **assignee profile's** `gh` login — its `GH_TOKEN` /
 `GH_CONFIG_DIR` from the profile's own `.env`, never the ambient login of the
@@ -93,6 +94,50 @@ transaction or a continuous post-completion monitor. This is a single-user lifec
 guard, not OS isolation against arbitrary direct database writes. GitHub Enterprise
 is not covered. Related publication/lifecycle work: #91230, #84254, #52311; local
 verification and publication alone are not remote acceptance.
+
+### Operator-attested local review for an already-bound PR
+
+When an operator explicitly approves independent local verification instead of
+hosted checks for a repository **with no required hosted checks**, use:
+
+```bash
+hermes kanban --board BOARD approve-local-pr TASK_ID \
+  --pr https://github.com/OWNER/REPO/pull/123 \
+  --head FULL_LOWERCASE_40_CHARACTER_SHA \
+  --base FULL_LOWERCASE_40_CHARACTER_BASE_SHA \
+  --evidence /absolute/path/to/independent-PASS-report.md \
+  --reason 'Why local acceptance was explicitly authorized' \
+  --approval-ref 'Durable operator authorization message/reference'
+```
+
+Run this from an operator terminal, not an agent worker or delegated child.
+There is no `--yes`, metadata override, or model tool. The terminal asks the
+operator to attest to an independent PASS and type the task, full head, full base
+commit SHA and evidence digest. The report must contain both full SHAs and be nonempty UTF-8
+text of at most 64 KiB. Its full text, digest, source path, reason, approval
+reference and OS username are retained in a `local_pr_policy` task event;
+use a sanitized report appropriate for everyone who can read the board.
+This is an operator attestation, not automated verification of prose or
+cryptographic authentication against arbitrary code running as the same OS user.
+
+Administration requires an idle/nonterminal task already bound to the exact PR.
+It does not edit `completion_contract`, complete the card, change its status,
+create a GitHub check, or waive code review or runtime safety requirements.
+The ordinary completion path still checks repository policy with the assignee's
+credentials. Required CI, API errors, changed head/base, closed-unmerged PRs and
+ownership races fail closed. The resulting receipt is `local-reviewed`, never
+a hosted-check success. New heads or base commits (even on the same branch) need
+new independent evidence and explicit operator attestation. Both GraphQL's base
+commit and the final REST base commit must match the reviewed SHA. Merged PRs
+remain eligible only while the API-reported head and base still match; merging
+does not exempt a changed base. Policies without a base SHA and event removal
+make the policy unavailable (fail closed).
+
+Deploy the reviewed implementation to the process performing completion before
+using this command: older runtimes ignore the new event and continue rejecting
+the card. A reviewed CLI checkout may perform both administration and ordinary
+completion without restarting a gateway; do not mix old and new completion code
+or mutate a live runtime in place.
 
 ## Kanban vs. `delegate_task`
 
