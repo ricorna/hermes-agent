@@ -12,7 +12,8 @@ sys.path.insert(0, str(SCRIPTS))
 import jimmy_v0231_activate as c
 
 ROOT = pathlib.Path("/home/jimmy/.local/state/hermes-fleet/jimmy-v0232-reconcile-t_1e63040a")
-SHA = "e850d48d9ac707f01c619d1d4ddd9afcc9eeaace"
+SHA = "769c26ccd1b1f9d07a800c1a853dbcd8fb5f67e7"
+COMPOSITION_SHA = "e850d48d9ac707f01c619d1d4ddd9afcc9eeaace"
 BASE = "ae2a81ccc00e9b7c06301523e5bb09608397149c"
 PLUGIN = "32e4000c6e58133f7877309f8e79db8b12d1e1f3"
 
@@ -31,7 +32,7 @@ class ReleaseTargetTests(unittest.TestCase):
         self.assertEqual(c.OLD_SHA, "f924a08357f95c24f826d595c48bb8da06c228e2")
         self.assertEqual(c.OLD_PLUGIN_SHA, "c92c27c9f919178a58974a72333b473c6cb2e71d")
 
-    def source_fence(self, head=SHA, release=BASE, dirty=""):
+    def source_fence(self, head=SHA, release=BASE, dirty="", composition=COMPOSITION_SHA):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             validation = {"status": "validated_reviewed_candidate_not_activated", "steps": {
@@ -48,8 +49,8 @@ class ReleaseTargetTests(unittest.TestCase):
                 self.assertEqual(args[:3], ["git", "-C", c.SRC])
                 return {
                     ("rev-parse", "HEAD"): head,
-                    ("rev-parse", "HEAD^"): "2dbdb78e2ccc3f05cd6d6acca0cfbcfd71cb0359",
-                    ("rev-parse", "HEAD^2"): release,
+                    ("rev-parse", "HEAD^"): composition,
+                    ("rev-parse", "HEAD^^2"): release,
                     ("status", "--porcelain"): dirty,
                 }[tuple(args[3:])]
 
@@ -64,6 +65,10 @@ class ReleaseTargetTests(unittest.TestCase):
     def test_rejects_wrong_combined_head(self):
         with self.assertRaises(AssertionError):
             self.source_fence(head="0" * 40)
+
+    def test_rejects_wrong_composition_parent(self):
+        with self.assertRaises(AssertionError):
+            self.source_fence(composition="0" * 40)
 
     def test_rejects_wrong_release_parent(self):
         with self.assertRaises(AssertionError):
