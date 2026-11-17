@@ -1,9 +1,11 @@
-"""Frozen v0.23.2 target and source fence; never invoke production preflight."""
+"""Frozen v0.23.2 target and preflight source fence, with no production I/O."""
 
-import ast
+import json
 import pathlib
 import sys
+import tempfile
 import unittest
+from unittest import mock
 
 SCRIPTS = pathlib.Path(__file__).resolve().parents[2] / "scripts/maintenance"
 sys.path.insert(0, str(SCRIPTS))
@@ -13,6 +15,10 @@ ROOT = pathlib.Path("/home/jimmy/.local/state/hermes-fleet/jimmy-v0232-reconcile
 SHA = "e850d48d9ac707f01c619d1d4ddd9afcc9eeaace"
 BASE = "ae2a81ccc00e9b7c06301523e5bb09608397149c"
 PLUGIN = "32e4000c6e58133f7877309f8e79db8b12d1e1f3"
+
+
+class SourceFencePassed(Exception):
+    """Stop before plugin, production, service or configuration preflight."""
 
 
 class ReleaseTargetTests(unittest.TestCase):
@@ -25,26 +31,35 @@ class ReleaseTargetTests(unittest.TestCase):
         self.assertEqual(c.OLD_SHA, "f924a08357f95c24f826d595c48bb8da06c228e2")
         self.assertEqual(c.OLD_PLUGIN_SHA, "c92c27c9f919178a58974a72333b473c6cb2e71d")
 
-    def source_fence(self, head=SHA, release=BASE):
-        # Isolate only the real preflight identity assertion, as in the existing
-        # baseline regression harness. No Controller construction or side effects.
-        tree = ast.parse(pathlib.Path(c.__file__).read_text(encoding="utf-8"))
-        cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "Controller")
-        preflight = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == "preflight")
-        fence = next(n for n in preflight.body if isinstance(n, ast.Assert) and "rev-parse" in ast.unparse(n))
-        calls = []
+    def source_fence(self, head=SHA, release=BASE, dirty=""):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            validation = {"status": "validated_reviewed_candidate_not_activated", "steps": {
+                name: {"rc": 0} for name in ("state-suite", "connect-vault-suite", "directsdk-offline", "packaging")
+            }}
+            (root / "reviewed-validation.json").write_text(json.dumps(validation), encoding="utf-8")
+            ctl = object.__new__(c.Controller)
+            ctl.work = root / "attempt"
+            ctl.save = lambda: None
 
-        class Probe:
-            def cmd(self, args):
-                calls.append(args)
-                return {"HEAD": head, "HEAD^": "2dbdb78e2ccc3f05cd6d6acca0cfbcfd71cb0359", "HEAD^2": release}[args[-1]]
+            def command(args):
+                if args[2] == c.REVIEWED_PLUGIN:
+                    raise SourceFencePassed
+                self.assertEqual(args[:3], ["git", "-C", c.SRC])
+                return {
+                    ("rev-parse", "HEAD"): head,
+                    ("rev-parse", "HEAD^"): "2dbdb78e2ccc3f05cd6d6acca0cfbcfd71cb0359",
+                    ("rev-parse", "HEAD^2"): release,
+                    ("status", "--porcelain"): dirty,
+                }[tuple(args[3:])]
 
-        code = compile(ast.Module(body=[fence], type_ignores=[]), c.__file__, "exec")
-        exec(code, {**vars(c), "self": Probe()})
-        self.assertEqual([args[-1] for args in calls], ["HEAD", "HEAD^2"])
+            ctl.cmd = command
+            with mock.patch.object(c, "ROOT", root):
+                ctl.preflight()
 
-    def test_accepts_exact_combined_head_and_release_parent(self):
-        self.source_fence()
+    def test_accepts_exact_clean_combined_head_and_release_parent(self):
+        with self.assertRaises(SourceFencePassed):
+            self.source_fence()
 
     def test_rejects_wrong_combined_head(self):
         with self.assertRaises(AssertionError):
@@ -53,6 +68,10 @@ class ReleaseTargetTests(unittest.TestCase):
     def test_rejects_wrong_release_parent(self):
         with self.assertRaises(AssertionError):
             self.source_fence(release="0" * 40)
+
+    def test_rejects_dirty_candidate(self):
+        with self.assertRaises(AssertionError):
+            self.source_fence(dirty=" M run_agent.py")
 
 
 if __name__ == "__main__":
