@@ -1,19 +1,19 @@
-"""Jimmy-only v0.23.1 cutover with independent timer watchdog and bounded rollback."""
+"""Jimmy-only v0.23.2 cutover with independent timer watchdog and bounded rollback."""
 
 import os, pathlib, subprocess, json, time, fcntl, socket, sys, shutil, sqlite3, hashlib, re
 import contextlib, copy, secrets, signal, shlex, argparse
 import logging
 
 LOG = logging.getLogger(__name__)
-ROOT = pathlib.Path("/home/jimmy/.local/state/hermes-fleet/jimmy-v0231-t_1e63040a")
+ROOT = pathlib.Path("/home/jimmy/.local/state/hermes-fleet/jimmy-v0232-reconcile-t_1e63040a")
 SRC = ROOT / "source"
 VENV = SRC / ".venv"
 REVIEWED_PLUGIN = ROOT / "reviewed-plugin"
 OLD = ROOT.with_name("jimmy-stable-v0225-20261031") / "source"
 OLD_SHA = "f924a08357f95c24f826d595c48bb8da06c228e2"
-BASE = "3b421578588243f920886e6fe79a6faa87ea026e"
-SHA = "2dbdb78e2ccc3f05cd6d6acca0cfbcfd71cb0359"
-PLUGIN_SHA = "139adc3fd4e4c66ac4f8a50f1d433dfadbb12700"
+BASE = "ae2a81ccc00e9b7c06301523e5bb09608397149c"
+SHA = "e850d48d9ac707f01c619d1d4ddd9afcc9eeaace"
+PLUGIN_SHA = "32e4000c6e58133f7877309f8e79db8b12d1e1f3"
 OLD_PLUGIN_SHA = "c92c27c9f919178a58974a72333b473c6cb2e71d"
 TOKEN = "JIMMY_V0231_ROUTE_7F3C_OK"
 DBS = [
@@ -587,9 +587,12 @@ class Controller:
             "packaging",
         ]:
             assert val["steps"][n]["rc"] == 0
+        # Frozen reconciliation merge: first parent retains the reviewed overlay;
+        # second parent is the exact v0.23.2 release. Do not accept an arbitrary
+        # descendant or a squash with different ancestry, even if its tree matches.
         assert (
             self.cmd(["git", "-C", SRC, "rev-parse", "HEAD"]).strip() == SHA
-            and self.cmd(["git", "-C", SRC, "rev-parse", "HEAD^"]).strip() == BASE
+            and self.cmd(["git", "-C", SRC, "rev-parse", "HEAD^2"]).strip() == BASE
         )
         assert not self.cmd(["git", "-C", SRC, "status", "--porcelain"]).strip()
         assert self.cmd(
@@ -1161,7 +1164,7 @@ def command(args, deadline, timeout=300, **kwargs):
 
 @contextlib.contextmanager
 def attempt_lock(path, deadline):
-    with pathlib.Path(path).open("a") as lock:
+    with pathlib.Path(path).open("a", encoding="utf-8") as lock:
         while True:
             deadline.remaining()
             try:

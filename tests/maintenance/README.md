@@ -1,12 +1,14 @@
-# Jimmy v0.23.1 controller regression lane
+# Jimmy v0.23.2 controller regression lane
 
-Source repair only; these tests do not authorize activation. Production runtime remains the frozen candidate `2dbdb78e2ccc3f05cd6d6acca0cfbcfd71cb0359`. The maintenance commit is **not** a new accepted runtime SHA.
+Source repair only; these tests do not authorize activation. The runtime candidate is now `e850d48d9ac707f01c619d1d4ddd9afcc9eeaace`: the exact v0.23.2 release `ae2a81ccc00e9b7c06301523e5bb09608397149c` plus the unchanged four-path Connect overlay. Its first merge parent preserves PR9 history, and its second parent is the release. The maintenance commit is **not** the runtime SHA.
+
+The new isolated target is `/home/jimmy/.local/state/hermes-fleet/jimmy-v0232-reconcile-t_1e63040a`. `source` must be the clean exact runtime head, `source/.venv` must be rebuilt/bound there, and `reviewed-plugin` must be clean `32e4000c6e58133f7877309f8e79db8b12d1e1f3`. Prior stages/attempts remain untouched. Canonical script filenames retain `v0231` for compatibility; their target constants are explicitly v0.23.2. Do not copy old validation receipts to satisfy preflight. Fresh validation, independent review, production-home/generation checks and candidate-ready-to-old rollback proof are still required. Exact-head local acceptance is authorized instead of GitHub Actions; it is not a fabricated repository check.
 
 ## Offline suite
 
 ```sh
 python3 -m unittest discover -s tests/maintenance -p 'test_jimmy*.py' -v
-python3 scripts/check --base 2dbdb78e2ccc3f05cd6d6acca0cfbcfd71cb0359
+python3 scripts/check --base e850d48d9ac707f01c619d1d4ddd9afcc9eeaace
 ```
 
 Use Python 3.11+ for repository checks. The unittest modules are standalone so they do not import the runtime's root pytest conftest or user configuration. Linux/systemd tests skip unless explicitly opted in. The opt-in harness creates only uniquely named `hermes-jimmy-test-t-02dfc300-*` units, private fixtures, and matching user-runtime links/drop-in directories; it stops and removes its own units, resets only their failed states, and reloads the user manager. It never starts the production controller, gateway, migrations, or restores production data.
