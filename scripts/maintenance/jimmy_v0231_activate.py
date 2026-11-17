@@ -935,6 +935,13 @@ class Controller:
         self.d["schema"] = self.run_command(
             "schema", [VENV / "bin/hermes", "config", "get", "_config_version"]
         ).strip()
+        # Upgrade the stopped, backed-up store through canonical startup before
+        # the read-only health/drift gate; config migration does not open state.db.
+        self.run_command(
+            "state-schema",
+            [VENV / "bin/python", "-c", "from hermes_state import SessionDB; db = SessionDB(); db.close()"],
+            600,
+        )
         self.run_command(
             "pre-session-check",
             [VENV / "bin/hermes", "sessions", "repair", "--check-only"],
