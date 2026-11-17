@@ -148,6 +148,15 @@ _BOARD_SPECS = [
 
 # Top-level ``hermes kanban <action>`` records, in ``--help`` order.
 _SPECS = [
+    _cmd("approve-local-pr", [
+        _TASK_ID,
+        _arg("--pr", required=True, help="Existing exact completion-contract PR URL"),
+        _arg("--head", required=True, help="Independently reviewed full head SHA"),
+        _arg("--base", required=True, help="Independently reviewed full base commit SHA (not branch name)"),
+        _arg("--evidence", required=True, help="Retained independent PASS report (UTF-8, <=64 KiB)"),
+        _arg("--reason", required=True),
+        _arg("--approval-ref", required=True, help="Explicit operator authorization reference"),
+    ], help="Interactive operator attestation for an exact PR head with no required CI"),
     _cmd("init", help="Create kanban.db if missing (idempotent)"),
     _cmd("boards", children=("boards_action", _BOARD_SPECS),
          help="Manage kanban boards (one board per project / workstream)",

@@ -32,7 +32,11 @@ def prepare_acceptance(conn, task_id, expected_run_id, metadata):
     # The assignee profile's gh login owns the repo: acceptance must not run as
     # the ambient login of whichever process completes the card (#122689).
     assignee = conn.execute("SELECT assignee FROM tasks WHERE id=?", (task_id,)).fetchone()["assignee"]
-    return snapshot, collect_acceptance(contract, published_pr, assignee=assignee)
+    from hermes_cli.kanban_local_acceptance import latest_policy, apply_policy
+    policy_id, policy = latest_policy(conn, task_id)
+    receipt = collect_acceptance(contract, published_pr, assignee=assignee)
+    receipt = apply_policy(contract, receipt, policy_id, policy, assignee)
+    return snapshot, receipt
 
 
 def record_acceptance(conn, task_id, acceptance):
@@ -41,6 +45,11 @@ def record_acceptance(conn, task_id, acceptance):
     snapshot, receipt = acceptance
     if _snapshot(conn, task_id) != snapshot:
         return False
+    if receipt.get("classification") == "local-reviewed":
+        from hermes_cli.kanban_local_acceptance import latest_policy
+        assignee = conn.execute("SELECT assignee FROM tasks WHERE id=?", (task_id,)).fetchone()[0]
+        if latest_policy(conn, task_id)[0] != receipt["policy_event_id"] or assignee != receipt["assignee"]:
+            return False
     _append_event(conn, task_id, "pr_acceptance", receipt, run_id=snapshot[0])
     if not receipt["ok"]:
         detail = f"PR acceptance {receipt['classification']}: {receipt.get('detail', '')} {receipt['recovery']}"
