@@ -12,7 +12,8 @@ REVIEWED_PLUGIN = ROOT / "reviewed-plugin"
 OLD = ROOT.with_name("jimmy-stable-v0225-20261031") / "source"
 OLD_SHA = "f924a08357f95c24f826d595c48bb8da06c228e2"
 BASE = "ae2a81ccc00e9b7c06301523e5bb09608397149c"
-SHA = "e850d48d9ac707f01c619d1d4ddd9afcc9eeaace"
+SHA = "769c26ccd1b1f9d07a800c1a853dbcd8fb5f67e7"
+COMPOSITION_SHA = "e850d48d9ac707f01c619d1d4ddd9afcc9eeaace"
 PLUGIN_SHA = "32e4000c6e58133f7877309f8e79db8b12d1e1f3"
 OLD_PLUGIN_SHA = "c92c27c9f919178a58974a72333b473c6cb2e71d"
 TOKEN = "JIMMY_V0231_ROUTE_7F3C_OK"
@@ -587,12 +588,12 @@ class Controller:
             "packaging",
         ]:
             assert val["steps"][n]["rc"] == 0
-        # Frozen reconciliation merge: first parent retains the reviewed overlay;
-        # second parent is the exact v0.23.2 release. Do not accept an arbitrary
-        # descendant or a squash with different ancestry, even if its tree matches.
+        # Exact dependency-only child of the reviewed reconciliation merge.
+        # Keep both composition identity and its exact release-parent fence.
         assert (
             self.cmd(["git", "-C", SRC, "rev-parse", "HEAD"]).strip() == SHA
-            and self.cmd(["git", "-C", SRC, "rev-parse", "HEAD^2"]).strip() == BASE
+            and self.cmd(["git", "-C", SRC, "rev-parse", "HEAD^"]).strip() == COMPOSITION_SHA
+            and self.cmd(["git", "-C", SRC, "rev-parse", "HEAD^^2"]).strip() == BASE
         )
         assert not self.cmd(["git", "-C", SRC, "status", "--porcelain"]).strip()
         assert self.cmd(
