@@ -1466,7 +1466,7 @@ def yaml_value(path, cmd, python):
             [
                 python,
                 "-c",
-                "import json,sys,yaml; print(json.dumps(yaml.safe_load(open(sys.argv[1], encoding='utf-8-sig'))))",
+                "import json,sys; import hermes_yaml as yaml; print(json.dumps(yaml.safe_load(open(sys.argv[1], encoding='utf-8-sig'))))",
                 path,
             ]
         )
