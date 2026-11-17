@@ -13,6 +13,7 @@ import pytest
 from agent import trace_upload
 from agent.trace_upload import (
     build_trace_jsonl,
+    load_session_messages,
     upload_session_trace,
     _resolve_hf_token,
     _do_upload,
@@ -75,6 +76,26 @@ def test_converter_refuses_unredacted_passthrough_when_redactor_fails(monkeypatc
         build_trace_jsonl(msgs, session_id="s1", redact=True)
 
 
+def test_tool_arguments_stay_structured_when_text_redaction_would_break_json():
+    secret = "DB_PASSWORD=pw1longer" + "value99"
+    msgs = [{
+        "role": "assistant",
+        "content": "done",
+        "tool_calls": [{
+            "id": "call_1",
+            "function": {
+                "name": "terminal",
+                "arguments": json.dumps({"headers": secret, "safe": "keep"}),
+            },
+        }],
+    }]
+
+    line = json.loads(build_trace_jsonl(msgs, session_id="s1").strip())
+    tool_use = line["message"]["content"][1]
+    assert tool_use["input"]["safe"] == "keep"
+    assert secret not in json.dumps(tool_use["input"])
+
+
 def test_upload_blocks_when_redactor_fails(monkeypatch):
     monkeypatch.setenv("HF_TOKEN", "hf_test")
 
@@ -95,6 +116,17 @@ def test_converter_keeps_secrets_when_redact_disabled():
     msgs = [{"role": "user", "content": f"key OPENAI_API_KEY={secret} end"}]
     jsonl = build_trace_jsonl(msgs, session_id="s1", redact=False)
     assert secret in jsonl
+
+
+def test_load_session_messages_closes_database_on_failure(monkeypatch):
+    db = MagicMock()
+    db.resolve_session_id.side_effect = RuntimeError("read failed")
+    monkeypatch.setattr("hermes_state.SessionDB", lambda db_path=None: db)
+
+    with pytest.raises(RuntimeError, match="read failed"):
+        load_session_messages("s1")
+
+    db.close.assert_called_once()
 
 
 
@@ -161,7 +193,21 @@ def test_upload_happy_path_mocked(monkeypatch):
     assert first["sessionId"] == "20260531_abc"
 
 
+def test_list_held_env_secret_in_tool_arguments_keeps_siblings():
+    secret = "DB_PASSWORD=pw1longer" + "value99"
+    msgs = [{
+        "role": "assistant",
+        "content": "done",
+        "tool_calls": [{
+            "id": "call_1",
+            "function": {
+                "name": "terminal",
+                "arguments": json.dumps({"env": [secret], "safe": "keep"}),
+            },
+        }],
+    }]
 
-
-
-
+    line = json.loads(build_trace_jsonl(msgs, session_id="s1").strip())
+    tool_use = line["message"]["content"][1]
+    assert tool_use["input"]["safe"] == "keep"
+    assert secret not in json.dumps(tool_use["input"])
