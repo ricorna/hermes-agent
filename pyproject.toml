@@ -464,8 +464,9 @@ mistral = ["mistralai==2.10.1"]
 # PM on first use; never a core dependency and deliberately
 # NOT in [all].
 otlp = [
-  "opentelemetry-sdk==1.45.1",
-  "opentelemetry-exporter-otlp-proto-http==1.45.1",
+  # SDK pins API exactly; update this optional closure with the API security fix.
+  "opentelemetry-sdk==1.45.2",
+  "opentelemetry-exporter-otlp-proto-http==1.45.2",
 ]
 bedrock = ["boto3==1.43.115"]
 vertex = ["google-auth==2.62.0"]
@@ -649,6 +650,13 @@ google-meet = "sys_platform != 'android'"
 [tool.uv]
 # uv otherwise enables the dev group by default, including in payload builds.
 default-groups = []
+# Security fixes for optional transitive dependencies; constrain resolution without
+# adding them to lean core installs. Preserve upstream requirements (no override).
+constraint-dependencies = [
+  "oauthlib==4.0.1",  # CVE-2026-49272
+  "opentelemetry-api==1.45.2",  # CVE-2026-126360 (MCP trace extraction)
+  "tornado==6.6.1",  # CVE-2026-126347
+]
 # 3.11 is an install bridge for pre-PM updaters, never a runtime, so the lock
 # covers 3.14 only. Without this the lock must resolve every supported version,
 # where extras that only ever coexist on 3.14 (kittentts vs neutts) conflict.
